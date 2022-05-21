@@ -2,10 +2,9 @@
 import os
 import json
 import random
-import logging
 import requests
 import datetime
-from google.cloud import pubsub_v1
+from google.cloud import pubsub_v1, logging
 
 from dotenv import load_dotenv
 
@@ -21,6 +20,9 @@ publisher = pubsub_v1.PublisherClient()
 # The `topic_path` method creates a fully qualified identifier
 # in the form `projects/{project_id}/topics/{topic_id}`
 topic_path = publisher.topic_path(project_id, topic_id)
+
+client = logging.Client()
+logger = client.logger("monitoring_crypto_prices")
 
 def generate_tokens() -> str:
 
@@ -42,6 +44,15 @@ def execute_request_to_api(ids_currencies):
     #print(data.json())
     for currency in data.json():
 
+        logger_name = f"monitoring_crypto_price_{str(currency['currency'])}"
+
+        logger_currency = client.logger(logger_name)
+
+        
+        #metric = client.metric(f"metrica_dist_monitoring_crypto_price_{str(currency['currency'])}", filter_=filter_, description="")
+        #if not metric.exists():
+        #    metric.create()
+
         message = {
             'id': str(currency['id']),
             'currency':str(currency['currency']),
@@ -49,6 +60,14 @@ def execute_request_to_api(ids_currencies):
             'price':str(currency['price']),
             'price_timestamp':str(currency['price_timestamp'])
         }
+
+        if 10 == int(random.randint(0, 19)):
+            raise Exception("error random API")
+
+        #logger.log_text(f"Error: {num}", severity="ERROR")
+        #logger.log_struct({"stock": (50.0 - float(currency['price'])) * 100.0}, labels={"type": "product"})
+
+        logger_currency.log_struct({"stock" : float(currency['price']) }, labels={"type": "product"})
 
         print(message)
 
@@ -58,7 +77,7 @@ def execute_request_to_api(ids_currencies):
         future = publisher.publish(topic_path, message)
         print(future.result())
 
-    logging.info('Request complete. The data has been published.')
+    logger.log_text('Request complete. The data has been published.', severity="INFO")
 
 def main(data, context):
     """Triggered from a message on a Cloud Pub/Sub topic.
@@ -66,10 +85,11 @@ def main(data, context):
         data (dict): Event payload.
         context (google.cloud.functions.Context): Metadata for the event.
     """
+    print("inicio")
     try:
         current_time = datetime.datetime.utcnow()
 
-        logging.info(f'Cloud Function was triggered on {current_time}')
+        logger.log_text(f'Cloud Function was triggered on {current_time}', severity="INFO")
 
         currencies_final = generate_tokens()
 
@@ -77,12 +97,15 @@ def main(data, context):
             execute_request_to_api(currencies_final)
 
         except Exception as error:
+            print(error)
+            logger.log_text(f'Request failed due to {error}.', severity="ERROR")
 
-            logging.error(f'Request failed due to {error}.')
+        print("ok")
 
     except Exception as error:
+        print(error)
+        logger.log_text(f'{error}.', severity="ERROR")
 
-        logging.error(f'{error}')
 
-if __name__ == '__main__':
-    main('data', 'context')
+main('data', 'context')
+
